@@ -109,6 +109,7 @@ class MDPTeleopDataset(TeleopDataset):
 class SeqTeleopDataset(TeleopDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.max_length = max(self.traj_lengths)
 
     def __len__(self):
         return len(self.traj_lengths)
@@ -118,6 +119,17 @@ class SeqTeleopDataset(TeleopDataset):
 
         s_seq = torch.from_numpy(self.traj_states[idx][:t])         # (T, 6)
         a_seq = torch.from_numpy(self.traj_actions[idx][:t])        # (T, 3)
-        s_next_seq = torch.from_numpy(self.traj_states[idx][1:t+1]) # (T, 6)
+        s_next_seq = torch.from_numpy(self.traj_states[idx][1:t+1])  # (T, 6)
 
-        return s_seq, a_seq, s_next_seq
+        # Set padding
+        padding_mask = torch.zeros(self.max_length, dtype=torch.bool)
+        padding_mask[t:] = True
+        
+        # Pad sequences to max_length
+        pad_size = self.max_length - t
+        if pad_size > 0:
+            s_seq = torch.nn.functional.pad(s_seq, (0, 0, 0, pad_size))
+            a_seq = torch.nn.functional.pad(a_seq, (0, 0, 0, pad_size))
+            s_next_seq = torch.nn.functional.pad(s_next_seq, (0, 0, 0, pad_size))
+
+        return s_seq, a_seq, s_next_seq, padding_mask

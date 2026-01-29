@@ -1,1 +1,1 @@
-from transformer import HIMTransfomerNet
+from .transformer import HIMTransfomerNet

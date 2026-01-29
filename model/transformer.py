@@ -18,6 +18,7 @@ class HIMTransfomerNet(nn.Module):
         pe_kwargs: dict = {}
     ):
         super().__init__()
+        self.batch_first = batch_first
 
         # Set default MLP and Positional Encoding parameters
         mlp_kwargs.setdefault('d_model', d_model)
@@ -43,8 +44,22 @@ class HIMTransfomerNet(nn.Module):
             num_layers=n_layers
         )
 
-    def forward(self, src: Tensor) -> Tensor:
+    def forward(self,
+                src: Tensor,
+                batch_mask: Tensor = None) -> Tensor:
         src = self.mlp_encoder(src)
         src = self.pos_encoder(src)
-        output = self.transformer_encoder(src)
+
+        if self.batch_first:
+            T = src.size(1)
+        else:
+            T = src.size(0)
+
+        causal_mask = torch.triu(
+            torch.ones((T, T), device=src.device), diagonal=1).bool()
+        
+        output = self.transformer_encoder(
+            src,
+            mask=causal_mask,
+            src_key_padding_mask=batch_mask)
         return output
