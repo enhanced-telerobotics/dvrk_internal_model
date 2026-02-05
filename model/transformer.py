@@ -9,6 +9,7 @@ class HIMTransfomerNet(nn.Module):
     def __init__(
         self,
         d_model: int,
+        d_out: int,
         d_hid: int = 128,
         n_heads: int = 2,
         n_layers: int = 2,
@@ -37,12 +38,14 @@ class HIMTransfomerNet(nn.Module):
             TransformerEncoderLayer(
                 d_model=d_hid,
                 nhead=n_heads,
-                dim_feedforward=d_hid * 2,
+                dim_feedforward=d_hid * 4,
                 dropout=dropout,
                 batch_first=batch_first
             ),
             num_layers=n_layers
         )
+
+        self.head = nn.Linear(d_hid, d_out)
 
     def forward(self,
                 src: Tensor,
@@ -62,4 +65,6 @@ class HIMTransfomerNet(nn.Module):
             src,
             mask=causal_mask,
             src_key_padding_mask=batch_mask)
+        
+        output = self.head(output)
         return output
