@@ -12,7 +12,7 @@ class TeleopDataset(Dataset):
                   "goal_x", "goal_y", "goal_z"]
     ACTION_COLS = ["master_x", "master_y", "master_z"]
 
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, index: List[int] = None):
         # Scan for .csv files
         data_paths = sorted(Path(data_path).glob("*.csv"))
         if len(data_paths) == 0:
@@ -38,6 +38,18 @@ class TeleopDataset(Dataset):
             # Need at least 2 steps to form (s_t, a_t, s_{t+1})
             if T < 2:
                 continue
+
+            # Subsample dimensions if specified
+            if index is not None:
+                if any(i < 0 or i > 2 for i in index):
+                    raise ValueError(
+                        "index must contain values in [0, 2] for action dims"
+                    )
+
+                # Map action indices to state indices: [0,1,2] -> [0,1,2,3,4,5]
+                state_index = sorted([i for j in index for i in (j, j + 3)])
+                states = states[:, state_index]
+                actions = actions[:, index]
 
             self.traj_states.append(states.astype(np.float32))
             self.traj_actions.append(actions.astype(np.float32))
