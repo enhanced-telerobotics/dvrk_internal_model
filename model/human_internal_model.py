@@ -33,7 +33,7 @@ class TeleopHIM(L.LightningModule):
         # Register inital buffers
         N = d_out // 2
         self.register_buffer('B_0', torch.eye(
-            N))                 # (N, N)
+            N) * 0.001)         # (N, N)
         self.register_buffer('A', torch.eye(N).unsqueeze(
             0).unsqueeze(1))    # (1, 1, N, N)
         self.register_buffer('Q', torch.eye(N).unsqueeze(
@@ -71,25 +71,59 @@ class TeleopHIM(L.LightningModule):
         # Compute optimal control
         # (B, T+1, N, N)
         K = self.lqr_K(P, self.A, B, self.Q, self.R)
-        u_H_est = actions - torch.sign(x - x_goal) * W
-        u_H_star = - torch.matmul(K[:, :-1], x.unsqueeze(-1)).squeeze(-1)
+
+        u_H = actions
+        error = x - x_goal
+        u_H_star = - torch.matmul(K[:, :-1], error.unsqueeze(-1)).squeeze(-1)
+        u_H_star += torch.sign(error) * W
 
         # Compute Q-function values
-        Q_u_H_est = self.value_Q(
-            P[:, 1:], self.Q, self.R, x, u_H_est, x_next)   # (B, T)
+        Q_u_H = self.value_Q(
+            P[:, 1:], self.Q, self.R, x, u_H, x_next)   # (B, T)
         Q_u_H_star = self.value_Q(
             P[:, 1:], self.Q, self.R, x, u_H_star, x_next)  # (B, T)
 
         # Compute likelihoods loss (maximum)
         likelihoods = self.likelihood_u_H(
-            P[:, 1:], B[:, 1:], self.R, Q_u_H_star - Q_u_H_est) # (B, T)
+            P[:, 1:], B[:, 1:], self.R, Q_u_H - Q_u_H_star) # (B, T)
         loss = - torch.log(likelihoods + 1e-8).sum(dim=-1).mean()
 
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
+    
+    def predict_step(self, batch, batch_idx):
+        # Process batch data
+        states, actions, states_next, masks = batch
+        batch_size, seq_len, _ = states.shape
+        x, x_goal = torch.chunk(states, 2, dim=-1)
+        x_next, _ = torch.chunk(states_next, 2, dim=-1)
+
+        # Predict theta and unpack
+        theta = self.forward(batch)
+        B, W = torch.chunk(theta, 2, dim=-1)
+
+        # Stack B_0
+        B = torch.diag_embed(B)
+        B_0 = self.B_0.expand(batch_size, 1, *B.shape[-2:])
+        # (B, T+1, N, N)
+        B = torch.cat([B_0, B], dim=1)
+
+        # Get P_H via DARE
+        # (B, T+1, N, N)
+        P = self.dare(self.A, B, self.Q, self.R)
+
+        # Compute optimal control
+        # (B, T+1, N, N)
+        K = self.lqr_K(P, self.A, B, self.Q, self.R)
+
+        error = x - x_goal
+        u_H_star = - torch.matmul(K[:, :-1], error.unsqueeze(-1)).squeeze(-1)
+        u_H_star += torch.sign(error) * W
+
+        return u_H_star
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
         return optimizer
 
     @staticmethod
