@@ -42,14 +42,14 @@ class TeleopHIM(L.LightningModule):
             0).unsqueeze(1))    # (1, 1, N, N)
 
     def forward(self, x) -> Tensor:
-        states, actions, states_next, masks = x
+        states, actions, states_next = x
         data = torch.cat([states, actions, states_next],
                          dim=-1)    # (B, T, D)
-        return self.model(data, masks)
+        return self.model(data)
 
     def training_step(self, batch, batch_idx):
         # Process batch data
-        states, actions, states_next, masks = batch
+        states, actions, states_next = batch
         batch_size, seq_len, _ = states.shape
         x, x_goal = torch.chunk(states, 2, dim=-1)
         x_next, _ = torch.chunk(states_next, 2, dim=-1)
@@ -77,23 +77,27 @@ class TeleopHIM(L.LightningModule):
         u_H_star = - torch.matmul(K[:, :-1], error.unsqueeze(-1)).squeeze(-1)
         u_H_star += torch.sign(error) * W
 
+        # Compute next state via predicted control
+        x_next_star = B[:, :-1] @ u_H_star.unsqueeze(-1)  # (B, T, N, 1)
+        x_next_star = x + x_next_star.squeeze(-1)  # (B, T, N)
+
         # Compute Q-function values
         Q_u_H = self.value_Q(
             P[:, 1:], self.Q, self.R, x, u_H, x_next)   # (B, T)
         Q_u_H_star = self.value_Q(
-            P[:, 1:], self.Q, self.R, x, u_H_star, x_next)  # (B, T)
+            P[:, 1:], self.Q, self.R, x, u_H_star, x_next_star)  # (B, T)
 
         # Compute likelihoods loss (maximum)
         likelihoods = self.likelihood_u_H(
-            P[:, 1:], B[:, 1:], self.R, Q_u_H - Q_u_H_star) # (B, T)
+            P[:, 1:], B[:, 1:], self.R, Q_u_H + Q_u_H_star) # (B, T)
         loss = - torch.log(likelihoods + 1e-8).sum(dim=-1).mean()
 
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def predict_step(self, batch, batch_idx):
         # Process batch data
-        states, actions, states_next, masks = batch
+        states, actions, states_next = batch
         batch_size, seq_len, _ = states.shape
         x, x_goal = torch.chunk(states, 2, dim=-1)
         x_next, _ = torch.chunk(states_next, 2, dim=-1)

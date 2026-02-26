@@ -133,15 +133,4 @@ class SeqTeleopDataset(TeleopDataset):
         a_seq = torch.from_numpy(self.traj_actions[idx][:t])        # (T, 3)
         s_next_seq = torch.from_numpy(self.traj_states[idx][1:t+1])  # (T, 6)
 
-        # Set padding
-        padding_mask = torch.zeros(self.max_length, dtype=torch.bool)
-        padding_mask[t:] = True
-        
-        # Pad sequences to max_length
-        pad_size = self.max_length - t
-        if pad_size > 0:
-            s_seq = torch.nn.functional.pad(s_seq, (0, 0, 0, pad_size))
-            a_seq = torch.nn.functional.pad(a_seq, (0, 0, 0, pad_size))
-            s_next_seq = torch.nn.functional.pad(s_next_seq, (0, 0, 0, pad_size))
-
-        return s_seq, a_seq, s_next_seq, padding_mask
+        return s_seq, a_seq, s_next_seq
