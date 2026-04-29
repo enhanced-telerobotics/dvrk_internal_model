@@ -53,8 +53,9 @@ class TeleopHIM(L.LightningModule):
         B, W = torch.chunk(theta, 2, dim=-1)
 
         # Constrains
-        B = torch.tanh(torch.abs(B))    # positive and small
-        W = torch.tanh(W)               # small
+        # B = torch.tanh(torch.abs(B))    # positive and small
+        B = torch.abs(B)    # positive and small
+        # W = torch.tanh(W)               # small
 
         # Stack B_0
         B = torch.diag_embed(B)
@@ -89,7 +90,7 @@ class TeleopHIM(L.LightningModule):
         # Compute optimal control and predicted control
         u_H_star = - torch.matmul(K[:, :-1], x.unsqueeze(-1)).squeeze(-1)
         # Use predicted bias to compensate user actions
-        u_H_hat = actions - torch.sign(x) * W
+        u_H_hat = actions #- torch.sign(x) * W
 
         # Clip u_H to be within action limits
         u_H_star = torch.clamp(u_H_star, -1.0, 1.0)
@@ -136,7 +137,7 @@ class TeleopHIM(L.LightningModule):
         K = self.lqr_K(P, self.A, B, self.Q, self.R)
 
         u_H_star = - torch.matmul(K[:, :-1], x.unsqueeze(-1)).squeeze(-1)
-        u_H_star += torch.sign(x) * W
+        # u_H_star += torch.sign(x) * W
 
         return u_H_star
 

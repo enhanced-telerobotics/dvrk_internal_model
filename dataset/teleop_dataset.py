@@ -14,7 +14,7 @@ class TeleopDataset(Dataset):
 
     def __init__(self, data_path: str, index: List[int] = None):
         # Scan for .csv files
-        data_paths = sorted(Path(data_path).glob("*.csv"))
+        data_paths = sorted(Path(data_path).rglob("*.csv"))
         if len(data_paths) == 0:
             raise FileNotFoundError(f"No .csv files found under: {data_path}")
 
