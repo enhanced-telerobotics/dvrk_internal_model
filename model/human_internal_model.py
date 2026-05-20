@@ -9,15 +9,28 @@ from .riccati import dare as DARE
 
 
 class HIMBase(L.LightningModule):
-    def __init__(self, lr: float = 1e-3):
+    def __init__(
+            self,
+            lr: float = 1e-3,
+            **kwargs):
         super().__init__()
+        self.save_hyperparameters()
         self.lr = lr
 
         self.dare = DARE()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
-        return optimizer
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.lr,
+            weight_decay=self.hparams.get('weight_decay', 0)
+        )
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=self.hparams.get('lr_step_size', 10),
+            gamma=self.hparams.get('lr_gamma', 0.9)
+        )
+        return [optimizer], [scheduler]
 
     @staticmethod
     def lqr_K(P: Tensor, A: Tensor, B: Tensor, Q: Tensor, R: Tensor) -> Tensor:
