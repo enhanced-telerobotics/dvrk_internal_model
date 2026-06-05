@@ -4,10 +4,11 @@ This project implements a small simulation and learning pipeline for estimating 
 
 ## What Is In This Repository
 
-- `new_refactor_full_func.py` - main script for simulation, rollout export, parameter recovery, and transformer training.
+- `train_human_model.py` - main script for simulation, rollout export, parameter recovery, and transformer training.
+- `train_agent.py` - trains and evaluates a PPO robot policy that actively teaches the human by influencing their internal model.
 - `riccati.py` - differentiable discrete algebraic Riccati equation solver used inside the human control policy and learning losses.
 - `gradient_learner_rollouts/` - saved synthetic rollout CSV files used as training data.
-- `learning_dynamics_transformer.pt` - saved model checkpoint artifact.
+- `human_dynamics_transformer.pth` - saved transformer checkpoint produced by `train_human_model.py`.
 
 ## Project Idea
 
@@ -38,9 +39,9 @@ pip install torch numpy scipy matplotlib tensorboard
 
 TensorBoard is optional unless you use `tensorboard_log_dir` during training.
 
-## Running The Main Script
+## Running `train_human_model.py`
 
-The script is controlled by the `mode` variable near the bottom of `new_refactor_full_func.py`:
+The script is controlled by the `mode` variable near the bottom of `train_human_model.py`:
 
 ```python
 # mode = "generate_rollouts"
@@ -51,7 +52,7 @@ mode = "train transformer"
 After selecting a mode, run:
 
 ```bash
-python new_refactor_full_func.py
+python train_human_model.py
 ```
 
 ### Generate Rollouts
@@ -122,16 +123,77 @@ Then open the local URL printed by TensorBoard.
 
 ## Key Functions
 
+### `train_human_model.py`
+
 - `human_environment_simulation(...)` - simulates the human/environment interaction and optional gradient-based internal model update.
 - `save_gradient_learner_trajectory_csv(...)` - exports one rollout to CSV.
 - `recover_human_b_from_data(...)` - fits a fixed human dynamics vector from observed data.
 - `HumanDynamicsTransformer` - causal transformer that predicts time-varying human dynamics parameters.
 - `learn_human_dynamics(...)` - trains the transformer using rollout CSV files.
+
+### `train_agent.py`
+
+- `HumanRobotEnv` - Gymnasium environment wrapping the shared-autonomy simulation. The human holds an incorrect internal model (`theta_H`) and the robot blends its command with the human's LQR command: `u = alpha * u_R + (1 - alpha) * u_H`. The human attributes the blended outcome to their own action, which creates a teaching signal the robot can exploit. Supports two theta update modes: oracle (gradient-learner rule) and dyna (frozen transformer).
+- `PassivePolicy` - zero-action baseline that lets the human learn without any robot intervention.
+- `train_robot_policy(...)` - trains a PPO `MlpPolicy` (stable-baselines3) inside a `HumanRobotEnv` for a given number of timesteps and saves the checkpoint as a `.zip` file.
+- `evaluate_policy(...)` - rolls out a policy for `n_episodes` and returns arrays of theta errors, states, and control signals.
+- `plot_evaluation(...)` - plots mean ± std of theta error for active-teach vs passive-learn and saves the figure and raw data as `.npz`.
+- `plot_comparison(...)` - loads saved oracle and dyna NPZ files and overlays all three curves (oracle active, dyna active, passive).
+- `plot_comparison_from_results(...)` - same three-curve plot from in-memory `evaluate_policy()` result dicts.
+- `plot_trajectories(...)` - qualitative figure with 2-D spatial paths and control-norm time series for oracle, dyna, and passive conditions.
 - `dare` in `riccati.py` - differentiable wrapper around the discrete algebraic Riccati equation.
+
+## Running `train_agent.py`
+
+Set `mode` near the bottom of `train_agent.py`:
+
+```python
+# mode = "train_oracle"    # Train with ground-truth gradient-learner dynamics
+# mode = "train_dyna"      # Train with frozen transformer dynamics (Tian et al.)
+# mode = "evaluate"        # Load a saved policy and compare against passive learn
+mode = "evaluate_all"      # Run oracle, dyna, passive; plot trajectories + theta error
+# mode = "compare"         # Load saved NPZ files and overlay oracle/dyna/passive
+```
+
+Then run:
+
+```bash
+python train_agent.py
+```
+
+### Prerequisites
+
+`train_dyna` and `evaluate_all` require `human_dynamics_transformer.pth`. Generate it first by running `train_human_model.py` with `mode = "train transformer"`.
+
+Both training modes require stable-baselines3:
+
+```bash
+pip install stable-baselines3
+```
+
+### Modes
+
+| Mode | Description | Output |
+|------|-------------|--------|
+| `train_oracle` | PPO with ground-truth gradient-learner theta updates | `robot_policy_oracle.zip` |
+| `train_dyna` | PPO with frozen transformer theta updates | `robot_policy_dyna.zip` |
+| `evaluate` | Loads `robot_policy_oracle.zip`, compares active vs passive | `oracle__evaluation_theta_error.png` + `.npz` |
+| `evaluate_all` | Loads both policies, runs all three conditions | `eval_all_theta_error.png`, `eval_all_trajectories.png` |
+| `compare` | Overlays oracle and dyna from previously saved NPZ files | `comparison_comparison_theta_error.png` |
+
+### Reward Function
+
+The PPO reward at each step (Eq. 14 in paper):
+
+```
+reward = -||theta_H - theta_star||^2 - beta * ||u_blend - u_H||^2
+```
+
+The first term penalises how far the human's model is from the true dynamics. The second term penalises large robot interventions (minimal-intervention principle).
 
 ## Notes
 
 - The code currently uses double precision tensors: `DTYPE = torch.float64`.
 - The differentiable Riccati solver in `riccati.py` converts tensors through NumPy/SciPy in the forward pass, so CPU execution is the safest default.
 - Training data is synthetic and generated by the same dynamics assumptions used by the learner.
-- Several experimental or previous model variants are retained as comments in `new_refactor_full_func.py` for reference.
+- All dynamics parameters in `train_agent.py` (`A_env`, `B_env`, `Q_human`, `R_human`, `dt`) must match those used in `train_human_model.py` so the loaded transformer checkpoint is compatible with the environment.
